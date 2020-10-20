@@ -1,0 +1,105 @@
+#! /usr/bin/env python
+import click  # 10k stars on github
+import os
+from os import path
+import asyncio
+import aiohttp
+import requests
+from timeit import default_timer
+__author__ = "Anant Akash"
+__music__ = "Taylor Swift"
+
+START_TIME = default_timer()
+
+major_version = "0"
+minor_version = "1"
+patch_version = "0"
+
+def get_file_location():
+    if os.getenv("XDG_CONFIG_HOME") is None:
+        file_location = os.getenv("HOME") + "/.config/msr.txt"
+    else:
+        file_location = os.getenv("XDG_CONFIG_HOME") + "/msr.txt"
+    return file_location
+
+def get_list_of_urls():
+    file_location = get_file_location()
+    urls = []
+    with open(file_location, 'r') as f:
+        line = f.readline()
+        while line:
+            urls.append(line.strip())
+            line = f.readline()
+    return urls
+
+
+async def fetch(url, session, argument):
+    async with session.get(url) as response:
+        response_read = await response.read()
+        if argument is "measure":
+            return [url, len(response_read)]
+        elif argument is "race":
+            elapsed = default_timer() - START_TIME
+            time_completed_in = "{:5.2f}s".format(elapsed)
+            return [url, time_completed_in]
+
+
+async def fetch_many(loop, urls, argument):
+    async with aiohttp.ClientSession(auto_decompress=False) as session:
+        START_TIME = default_timer()
+        tasks = [loop.create_task(fetch(url, session, argument)) for url in urls]
+        return await asyncio.gather(*tasks)
+
+def async_requests(urls, argument):
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(fetch_many(loop, urls, argument))
+
+def print_results(results, click):
+    [click.echo("{} | {}".format(result[0], result[1])) for result in results]
+
+def add_to_registry(url):
+    #First check if XDG_CONFIG_HOME is set
+    # If not, then check if $HOME/.config/msr.txt exists
+    # If yes, check if $XDG_CONFIG_HOME/msr.txt exists
+    # If neither exists, then create file
+    file_location = get_file_location()
+    with open(file_location, 'a') as f:
+        f.write(url + "\n")
+    return
+
+@click.group()
+def cli():
+    pass
+
+
+@cli.command()
+def version():
+    click.echo("{}.{}.{}".format(major_version, minor_version, patch_version))
+
+
+@cli.command()
+@click.argument("url")
+def register(url):
+    if validators.url(url) is not True:
+        click.echo("{} is not a valid url".format(url))
+        exit(1)
+    add_to_registry(url)
+    click.echo('{} added to registry'.format(url))
+
+
+@cli.command()
+def measure():
+    urls = get_list_of_urls()
+    results = async_requests(urls, "measure")
+    [click.echo("{} | {}".format(result[0], result[1])) for result in results]
+
+
+@cli.command()
+def race():
+    urls = get_list_of_urls()
+    results = async_requests(urls, "race")
+    print_results(results, click)
+
+
+if __name__ == "__main__":
+    cli()
